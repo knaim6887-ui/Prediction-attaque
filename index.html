@@ -1,0 +1,104 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+html,body{margin:0;padding:0;background:transparent;overflow:hidden;font-family:Inter,'Segoe UI',system-ui,sans-serif}
+#grid{display:grid;gap:10px;padding:2px}
+.g{border-radius:16px;padding:6px 4px 9px;text-align:center;user-select:none;-webkit-user-select:none;touch-action:none;cursor:grab;outline:none;transition:box-shadow .15s}
+.g:active{cursor:grabbing}
+.g:focus-visible{box-shadow:0 0 0 2px var(--acc)}
+.g svg{width:100%;height:auto;display:block}
+.nm{font-size:12px;font-weight:700;margin-top:-8px;line-height:1.25;padding:0 6px}
+</style></head>
+<body><div id="grid"></div>
+<script>
+const SW=270,A0=135,CX=100,CY=86,R=70;
+let args=null,state={},token=null,dragging=null,lastSent="",timer=null;
+const grid=document.getElementById("grid");
+function send(type,data){window.parent.postMessage(Object.assign({isStreamlitMessage:true,type:type},data||{}),"*");}
+function polar(a,r){const t=a*Math.PI/180;return [CX+r*Math.cos(t),CY+r*Math.sin(t)];}
+function arc(a1,a2,r){const p1=polar(a1,r),p2=polar(a2,r);const large=(a2-a1)>180?1:0;
+  return "M"+p1[0].toFixed(2)+" "+p1[1].toFixed(2)+" A"+r+" "+r+" 0 "+large+" 1 "+p2[0].toFixed(2)+" "+p2[1].toFixed(2);}
+function tOf(g,v){const f=(v-g.min)/(g.max-g.min);return Math.pow(Math.min(1,Math.max(0,f)),1/g.power);}
+function vOf(g,t){let v=g.min+(g.max-g.min)*Math.pow(t,g.power);v=Math.round(v/g.step)*g.step;
+  v=Math.min(g.max,Math.max(g.min,v));return +v.toFixed(Math.max(g.decimals,2));}
+function fmt(g,v){return v.toLocaleString("fr-FR",{minimumFractionDigits:g.decimals,maximumFractionDigits:g.decimals});}
+function short(v){if(v>=1000){return (v/1000).toFixed(v>=10000?0:1).replace(".0","")+"k";}return String(+v.toFixed(1)).replace(".",",");}
+
+function build(){
+  const T=args.theme;
+  document.documentElement.style.setProperty("--acc",T.accent2);
+  grid.style.gridTemplateColumns="repeat("+args.cols+",minmax(0,1fr))";
+  grid.innerHTML="";
+  args.gauges.forEach(function(g,i){
+    const d=document.createElement("div");
+    d.className="g";d.tabIndex=0;d.dataset.i=i;
+    d.style.background=T.cell;d.style.border="1px solid "+T.border;
+    let ticks="",labels="";
+    for(let k=0;k<=20;k++){
+      const a=A0+SW*k/20,major=(k%5===0);
+      const p1=polar(a,major?50:54),p2=polar(a,60);
+      ticks+='<line data-k="'+k+'" x1="'+p1[0].toFixed(2)+'" y1="'+p1[1].toFixed(2)+'" x2="'+p2[0].toFixed(2)+'" y2="'+p2[1].toFixed(2)+'" stroke-width="'+(major?2:1.2)+'" stroke-linecap="round"/>';
+      if(major&&k>0&&k<20){const q=polar(a,40);const gv=vOf(g,k/20);
+        labels+='<text x="'+q[0].toFixed(2)+'" y="'+(q[1]+2.6).toFixed(2)+'" text-anchor="middle" font-size="7.5" font-weight="600" fill="'+T.muted+'">'+short(gv)+'</text>';}
+    }
+    d.innerHTML='<svg viewBox="0 0 200 150"><defs><linearGradient id="gr'+i+'" x1="0" y1="1" x2="1" y2="0">'
+      +'<stop offset="0" stop-color="'+T.accent2+'"/><stop offset="1" stop-color="'+T.accent+'"/></linearGradient></defs>'
+      +'<path d="'+arc(A0,A0+SW,R)+'" fill="none" stroke="'+T.track+'" stroke-width="9" stroke-linecap="round"/>'
+      +'<path class="val" fill="none" stroke="url(#gr'+i+')" stroke-width="9" stroke-linecap="round"/>'
+      +'<g class="tk">'+ticks+'</g><g>'+labels+'</g>'
+      +'<text x="46" y="143" text-anchor="middle" font-size="8" font-weight="600" fill="'+T.muted+'">'+short(g.min)+'</text>'
+      +'<text x="154" y="143" text-anchor="middle" font-size="8" font-weight="600" fill="'+T.muted+'">'+short(g.max)+'</text>'
+      +'<polygon class="nd" fill="'+T.needle+'"/>'
+      +'<circle cx="100" cy="86" r="7.5" fill="'+T.cell+'" stroke="'+T.accent+'" stroke-width="3"/>'
+      +'<text class="num" x="100" y="122" text-anchor="middle" font-size="20" font-weight="800" fill="'+T.text+'"></text>'
+      +'<text class="un" x="100" y="134" text-anchor="middle" font-size="8.5" font-weight="600" fill="'+T.muted+'"></text></svg>'
+      +'<div class="nm" style="color:'+T.text+'">'+g.label+'</div>';
+    grid.appendChild(d);
+    update(i);
+  });
+  fit();
+}
+function update(i){
+  const g=args.gauges[i],T=args.theme,d=grid.children[i];
+  const v=state[g.key],t=tOf(g,v);
+  d.querySelector(".val").setAttribute("d",arc(A0,A0+Math.max(0.6,SW*t),R));
+  const ang=A0+SW*t,tip=polar(ang,52),b1=[CX+3.4*Math.cos((ang+90)*Math.PI/180),CY+3.4*Math.sin((ang+90)*Math.PI/180)],
+        b2=[CX+3.4*Math.cos((ang-90)*Math.PI/180),CY+3.4*Math.sin((ang-90)*Math.PI/180)],tail=polar(ang+180,10);
+  d.querySelector(".nd").setAttribute("points",[tip,b1,tail,b2].map(function(p){return p[0].toFixed(2)+","+p[1].toFixed(2);}).join(" "));
+  d.querySelectorAll(".tk line").forEach(function(l){l.setAttribute("stroke",(+l.dataset.k/20)<=t+0.001?T.accent2:T.tick);});
+  d.querySelector(".num").textContent=fmt(g,v);
+  d.querySelector(".un").textContent=g.unit;
+}
+function fit(){send("streamlit:setFrameHeight",{height:grid.offsetHeight+6});}
+function commit(){const s=JSON.stringify(state);if(s!==lastSent){lastSent=s;send("streamlit:setComponentValue",{value:JSON.parse(s),dataType:"json"});}}
+function move(e){
+  const d=grid.children[dragging],svg=d.querySelector("svg"),r=svg.getBoundingClientRect();
+  const cx=r.left+r.width*CX/200,cy=r.top+r.height*CY/150,dx=e.clientX-cx,dy=e.clientY-cy;
+  if(Math.sqrt(dx*dx+dy*dy)<r.width*0.05)return;
+  let a=Math.atan2(dy,dx)*180/Math.PI;if(a<0)a+=360;
+  let rel=a-A0;if(rel<0)rel+=360;
+  if(rel>SW){rel=(rel>SW+(360-SW)/2)?0:SW;}
+  const g=args.gauges[dragging];state[g.key]=vOf(g,rel/SW);update(dragging);
+}
+grid.addEventListener("pointerdown",function(e){const d=e.target.closest(".g");if(!d)return;dragging=+d.dataset.i;
+  try{d.setPointerCapture(e.pointerId);}catch(x){} d.focus();move(e);e.preventDefault();});
+grid.addEventListener("pointermove",function(e){if(dragging!==null)move(e);});
+function endDrag(){if(dragging!==null){dragging=null;commit();}}
+grid.addEventListener("pointerup",endDrag);grid.addEventListener("pointercancel",endDrag);
+grid.addEventListener("dblclick",function(e){const d=e.target.closest(".g");if(!d)return;const i=+d.dataset.i,g=args.gauges[i];
+  state[g.key]=g.value;update(i);commit();});
+grid.addEventListener("keydown",function(e){const d=e.target.closest(".g");if(!d)return;
+  const i=+d.dataset.i,g=args.gauges[i];let dt=0;
+  if(e.key==="ArrowRight"||e.key==="ArrowUp")dt=0.02;else if(e.key==="ArrowLeft"||e.key==="ArrowDown")dt=-0.02;else return;
+  const t=Math.min(1,Math.max(0,tOf(g,state[g.key])+dt*(e.shiftKey?5:1)));
+  let v=vOf(g,t);if(v===state[g.key]){v=Math.min(g.max,Math.max(g.min,state[g.key]+(dt>0?g.step:-g.step)));}
+  state[g.key]=v;update(i);e.preventDefault();clearTimeout(timer);timer=setTimeout(commit,350);});
+window.addEventListener("message",function(e){
+  if(!e.data||e.data.type!=="streamlit:render")return;
+  args=e.data.args;
+  if(args.token!==token){token=args.token;state={};args.gauges.forEach(function(g){state[g.key]=g.value;});lastSent=JSON.stringify(state);}
+  build();
+});
+new ResizeObserver(fit).observe(grid);
+send("streamlit:componentReady",{apiVersion:1});
+</script></body></html>

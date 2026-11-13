@@ -1,0 +1,6 @@
+Modèle,Accuracy,Précision macro,Recall macro,F1-score macro
+Random Forest,1.0,1.0,1.0,1.0
+XGBoost,0.9999,0.9999,0.9999,0.9999
+Régression logistique,0.9997,0.9997,0.9997,0.9997
+SVM,0.9993,0.9993,0.9993,0.9993
+Régression linéaire,0.7808,0.7887,0.7808,0.7769
